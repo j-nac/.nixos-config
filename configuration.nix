@@ -82,6 +82,7 @@ in
     files = [
       "/etc/machine-id"
       { file = "/var/keys/secret_file"; parentDirectory = { mode = "u=rwx,g=,o="; }; }
+      "/etc/nixos-passwords/j-nac_hash.txt"
     ];
     users.j-nac = {
       directories = [
@@ -172,8 +173,8 @@ in
     isNormalUser = true;
     extraGroups = [ "wheel" "networkmanager" ]; # Enable ‘sudo’ for the user.
     shell = pkgs.zsh;
-    # mkpasswd -m sha-512
-    hashedPasswordFile = "/etc/nixos/secrets/j-nac_hash";
+    # mkpasswd -m sha-512 > j-nac_hash.txt
+    hashedPasswordFile = "/persist/etc/nixos-passwords/j-nac_hash.txt";
   };
 
   home-manager.users.j-nac = { pkgs, ... }: {
@@ -230,6 +231,7 @@ in
         enable = true;
         profiles.default.userSettings = {
           "editor.fontFamily" = "'MesloLGS NF', monospace";
+          "workbench.iconTheme" = "material-icon-theme";
         };
         profiles.default.extensions = with pkgs.vscode-extensions; [
           ms-python.python
