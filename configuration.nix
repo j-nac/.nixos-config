@@ -17,6 +17,9 @@ let
   plasma-manager = builtins.fetchTarball {
     url = "https://github.com/nix-community/plasma-manager/archive/trunk.tar.gz";
   };
+  nixos-hardware = builtins.fetchTarball {
+    url = "https://github.com/NixOS/nixos-hardware/archive/master.tar.gz";
+  };
 in
 {
   imports =
@@ -24,6 +27,7 @@ in
       ./hardware-configuration.nix
       "${impermanence}/nixos.nix"
       "${home-manager}/nixos"
+      "${nixos-hardware}/lenovo/legion/16aph8/default.nix"
     ];
 
   nixpkgs.overlays = [
@@ -40,8 +44,8 @@ in
   boot.loader.systemd-boot.enable = true;
   boot.loader.efi.canTouchEfiVariables = true;
 
-  # Use latest kernel.
-  boot.kernelPackages = pkgs.linuxPackages_latest;
+  # Use LTS kernel
+  boot.kernelPackages = pkgs.linuxPackages;
 
   boot.kernelParams = [
     "resume=/dev/nvme0n1p2"
@@ -109,6 +113,9 @@ in
         ".config/Slack"
         ".config/gh"
         ".config/signal"
+        ".local/share/Steam"
+        ".steam"
+        ".local/share/containers/"
       ];
       files = [
         ".screenrc"
@@ -155,7 +162,7 @@ in
   # services.xserver.xkb.options = "eurosign:e,caps:escape";
 
   # Enable CUPS to print documents.
-  # services.printing.enable = true;
+  services.printing.enable = true;
 
   # Enable sound.
   # services.pulseaudio.enable = true;
@@ -171,7 +178,7 @@ in
   users.mutableUsers = false;
   users.users.j-nac = {
     isNormalUser = true;
-    extraGroups = [ "wheel" "networkmanager" ]; # Enable ‘sudo’ for the user.
+    extraGroups = [ "wheel" "networkmanager" "docker" "vboxusers" ]; # Enable ‘sudo’ for the user.
     shell = pkgs.zsh;
     # mkpasswd -m sha-512 > j-nac_hash.txt
     hashedPasswordFile = "/persist/etc/nixos-passwords/j-nac_hash.txt";
@@ -192,6 +199,9 @@ in
       meslo-lgs-nf
       claude-code
       python314
+      texliveMedium
+      libreoffice-qt
+      distrobox
     ];
     programs = {
       zsh = {
@@ -232,6 +242,7 @@ in
         profiles.default.userSettings = {
           "editor.fontFamily" = "'MesloLGS NF', monospace";
           "workbench.iconTheme" = "material-icon-theme";
+          "git.enableSmartCommit" = true;
         };
         profiles.default.extensions = with pkgs.vscode-extensions; [
           ms-python.python
@@ -288,6 +299,26 @@ in
 
   programs.firefox.enable = true;
   programs.zsh.enable = true;
+  programs.steam = {
+    enable = true; # Master switch, already covered in installation
+    remotePlay.openFirewall = true;  # Open ports in the firewall for Steam Remote Play
+    dedicatedServer.openFirewall = true; # Open ports for Source Dedicated Server hosting
+  };
+  programs.gamemode.enable = true;
+  virtualisation.containers.enable = true;
+  virtualisation = {
+    podman = {
+      enable = true;
+
+      # Create a `docker` alias for podman, to use it as a drop-in replacement
+      dockerCompat = true;
+
+      # Required for containers under podman-compose to be able to talk to each other.
+      defaultNetwork.settings.dns_enabled = true;
+    };
+  };
+  virtualisation.virtualbox.host.enable = true;
+  virtualisation.virtualbox.host.enableExtensionPack = true;
 
   # List packages installed in system profile.
   # You can use https://search.nixos.org/ to find more packages (and options).
@@ -295,6 +326,7 @@ in
     vim
     wget
     kdePackages.plasma-browser-integration
+    docker-compose
   ];
 
   # Some programs need SUID wrappers, can be configured further or are

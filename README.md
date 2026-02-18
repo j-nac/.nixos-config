@@ -16,7 +16,9 @@ Make sure to symlink the config in `~/.nixos-config` to `/etc/nixos` with the fo
 
 `sudo ln -s ~/.nixos-config/* /etc/nixos`
 
-You should only have to run this once (because `/etc/nixos` is persisted).
+You need to do this the first time and if you ever add or remove files (because `/etc/nixos` is persisted).
+
+For re-symlinking, `rm -rf /etc/nixos` and then do the symlink command.
 
 ## Gemini
 
