@@ -199,9 +199,25 @@ in
       meslo-lgs-nf
       claude-code
       python314
-      texliveMedium
+      texliveFull
       libreoffice-qt
       distrobox
+      ruby
+      libgcc
+      gnumake
+      gdb
+      go
+      social-engineer-toolkit
+      metasploit
+      gef
+      wireshark
+      nmap
+      autopsy
+      burpsuite
+      uv
+      tor-browser
+      veracrypt
+      audacity
     ];
     programs = {
       zsh = {
@@ -243,6 +259,7 @@ in
           "editor.fontFamily" = "'MesloLGS NF', monospace";
           "workbench.iconTheme" = "material-icon-theme";
           "git.enableSmartCommit" = true;
+          "editor.wordWrap": "bounded";
         };
         profiles.default.extensions = with pkgs.vscode-extensions; [
           ms-python.python
@@ -264,6 +281,15 @@ in
         enable = true;
         settings.user.name = "j-nac";
         settings.user.email = "jnac8080@gmail.com";
+      };
+      ssh = {
+        enable = true;
+        matchBlocks = {
+          "cornell-ece-linux" = {
+            hostname = "ecelinux-16.ece.cornell.edu";
+            user = "jn567";
+          };
+        };
       };
       plasma = {
         enable = true;
