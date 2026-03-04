@@ -116,6 +116,11 @@ in
         ".local/share/Steam"
         ".steam"
         ".local/share/containers/"
+        ".config/VirtualBox"
+        ".vagrant.d"
+        ".claude"
+        ".wine"
+        ".local/share/applications/wine" # Show desktop links
       ];
       files = [
         ".screenrc"
@@ -203,21 +208,28 @@ in
       libreoffice-qt
       distrobox
       ruby
+      binutils
+      jekyll
       libgcc
       gnumake
+      gcc
       gdb
       go
-      social-engineer-toolkit
-      metasploit
       gef
       wireshark
       nmap
-      autopsy
       burpsuite
       uv
-      tor-browser
       veracrypt
       audacity
+      clamav
+      clang-tools
+      cmake
+      kdePackages.qrca
+      rustc
+      cargo
+      wineWowPackages.stable
+      winetricks
     ];
     programs = {
       zsh = {
@@ -259,7 +271,10 @@ in
           "editor.fontFamily" = "'MesloLGS NF', monospace";
           "workbench.iconTheme" = "material-icon-theme";
           "git.enableSmartCommit" = true;
-          "editor.wordWrap": "bounded";
+          "editor.wordWrap" = "bounded";
+          "C_Cpp.intelliSenseEngine" = "disabled";
+          "git.confirmSync" = false;
+          "git.autofetch" = true;
         };
         profiles.default.extensions = with pkgs.vscode-extensions; [
           ms-python.python
@@ -275,6 +290,12 @@ in
           ms-vscode.hexeditor
           james-yu.latex-workshop
           yzhang.markdown-all-in-one
+          davidanson.vscode-markdownlint
+          zxh404.vscode-proto3 # Already deprecated but this was the only one it would let me install
+          jnoortheen.nix-ide
+          ms-azuretools.vscode-containers
+          ms-vscode.cmake-tools
+          rust-lang.rust-analyzer
         ];
       };
       git = {
@@ -284,6 +305,7 @@ in
       };
       ssh = {
         enable = true;
+        enableDefaultConfig = false;
         matchBlocks = {
           "cornell-ece-linux" = {
             hostname = "ecelinux-16.ece.cornell.edu";
@@ -319,6 +341,10 @@ in
           ];
         }];
       };
+      fzf = {
+        enable = true;
+        enableZshIntegration = true;
+      };
     };
     home.stateVersion = "25.11";
   };
@@ -331,6 +357,29 @@ in
     dedicatedServer.openFirewall = true; # Open ports for Source Dedicated Server hosting
   };
   programs.gamemode.enable = true;
+
+  programs.nix-ld.enable = true;
+  programs.nix-ld.libraries = with pkgs; [
+    # Fundamental C/C++ libraries
+    stdenv.cc.cc
+    libgcc
+
+    # Dependencies for NumPy, SciPy, and Scikit-learn
+    zlib
+    gfortran.cc.lib
+
+    # Dependencies for sound-related libraries (librosa, sounddevice)
+    alsa-lib
+    libjack2
+    portaudio
+    libsndfile
+
+    # Common dynamic dependencies for Python data science wheels
+    openssl
+    curl
+    expat
+  ];
+
   virtualisation.containers.enable = true;
   virtualisation = {
     podman = {
@@ -353,7 +402,12 @@ in
     wget
     kdePackages.plasma-browser-integration
     docker-compose
+    vagrant
   ];
+
+  environment.variables = {
+    VAGRANT_DEFAULT_PROVIDER = "virtualbox";
+  };
 
   # Some programs need SUID wrappers, can be configured further or are
   # started in user sessions.
