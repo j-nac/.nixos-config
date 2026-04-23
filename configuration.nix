@@ -49,6 +49,7 @@ in
 
   boot.kernelParams = [
     "resume=/dev/nvme0n1p2"
+    "btusb.enable_autosuspend=n"
   ];
 
   # Impermanence and roll back
@@ -113,6 +114,7 @@ in
         ".config/Slack"
         ".config/gh"
         ".config/signal"
+        ".config/obsidian"
         ".local/share/Steam"
         ".steam"
         ".local/share/containers/"
@@ -180,6 +182,10 @@ in
   # Enable touchpad support (enabled default in most desktopManager).
   services.libinput.enable = true;
 
+  hardware.graphics.enable = true;
+  hardware.bluetooth.enable = true;
+  hardware.enableAllFirmware = true;
+
   users.mutableUsers = false;
   users.users.j-nac = {
     isNormalUser = true;
@@ -230,6 +236,14 @@ in
       cargo
       wineWowPackages.stable
       winetricks
+      rpi-imager
+      ruff
+      nodejs_24
+      anki-bin
+      spotify
+      obsidian
+      godot
+      pixi
     ];
     programs = {
       zsh = {
@@ -275,6 +289,32 @@ in
           "C_Cpp.intelliSenseEngine" = "disabled";
           "git.confirmSync" = false;
           "git.autofetch" = true;
+          "[python]" = {
+            "editor.defaultFormatter" = "charliermarsh.ruff";
+            "editor.formatOnSave" = true;
+            "editor.codeActionsOnSave" = {
+              "source.fixAll.ruff" = "explicit";
+              "source.organizeImports.ruff" = "explicit";
+            };
+          };
+          # "python.analysis.typeCheckingMode" = "strict";
+          "[rust]" = {
+            "editor.defaultFormatter" = "rust-lang.rust-analyzer";
+            "editor.formatOnSave" = true;
+          };
+          "[markdown]" = {
+            "editor.defaultFormatter" = "davidanson.vscode-markdownlint";
+            "editor.formatOnSave" = true;
+            "editor.codeActionsOnSave" = {
+              "source.fixAll.markdownlint" = "explicit";
+            };
+          };
+          "ruff.organizeImports" = true;
+          "errorLens.enabledDiagnosticLevels" = [
+		        "error"
+		        "warning"
+	        ];
+          "rust-analyzer.check.command" = "clippy";
         };
         profiles.default.extensions = with pkgs.vscode-extensions; [
           ms-python.python
@@ -296,12 +336,20 @@ in
           ms-azuretools.vscode-containers
           ms-vscode.cmake-tools
           rust-lang.rust-analyzer
+          usernamehw.errorlens
+          charliermarsh.ruff
+          anthropic.claude-code
+          ms-python.vscode-pylance
+          vadimcn.vscode-lldb
+          tamasfe.even-better-toml
+          gruntfuggly.todo-tree
         ];
       };
       git = {
         enable = true;
         settings.user.name = "j-nac";
         settings.user.email = "jnac8080@gmail.com";
+        lfs.enable = true;
       };
       ssh = {
         enable = true;
@@ -358,6 +406,12 @@ in
   };
   programs.gamemode.enable = true;
 
+  programs.gnupg.agent = {
+    enable = true;
+    enableSSHSupport = true;
+    pinentryPackage = pkgs.pinentry-curses;
+  };
+
   programs.nix-ld.enable = true;
   programs.nix-ld.libraries = with pkgs; [
     # Fundamental C/C++ libraries
@@ -403,6 +457,8 @@ in
     kdePackages.plasma-browser-integration
     docker-compose
     vagrant
+    gnupg
+    pinentry-curses
   ];
 
   environment.variables = {
@@ -423,7 +479,6 @@ in
   # services.openssh.enable = true;
 
   # Open ports in the firewall.
-  # networking.firewall.allowedTCPPorts = [ ... ];
   # networking.firewall.allowedUDPPorts = [ ... ];
   # Or disable the firewall altogether.
   # networking.firewall.enable = false;
