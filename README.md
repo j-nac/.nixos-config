@@ -19,7 +19,3 @@ Make sure to symlink the config in `~/.nixos-config` to `/etc/nixos` with the fo
 You need to do this the first time and if you ever add or remove files (because `/etc/nixos` is persisted).
 
 For re-symlinking, `rm -rf /etc/nixos` and then do the symlink command.
-
-## Gemini
-
-Much of this comes from [a response by Gemini](gemini.md)

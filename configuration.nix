@@ -1,29 +1,15 @@
-# Edit this configuration file to define what should be installed on
-# your system. Help is available in the configuration.nix(5) man page, on
-# https://search.nixos.org/options and in the NixOS manual (`nixos-help`).
-
 { config, lib, pkgs, ... }:
 
 let
-  impermanence = builtins.fetchTarball {
-    url = "https://github.com/nix-community/impermanence/archive/master.tar.gz";
-  };
-  home-manager = builtins.fetchTarball  {
-    url = "https://github.com/nix-community/home-manager/archive/release-25.11.tar.gz";
-  };
-  nur-source = builtins.fetchTarball  {
-    url = "https://github.com/nix-community/NUR/archive/main.tar.gz";
-  };
-  plasma-manager = builtins.fetchTarball {
-    url = "https://github.com/nix-community/plasma-manager/archive/trunk.tar.gz";
-  };
-  nixos-hardware = builtins.fetchTarball {
-    url = "https://github.com/NixOS/nixos-hardware/archive/master.tar.gz";
-  };
+  impermanence = builtins.fetchTarball "https://github.com/nix-community/impermanence/archive/master.tar.gz";
+  home-manager = builtins.fetchTarball "https://github.com/nix-community/home-manager/archive/master.tar.gz";
+  nur-source = builtins.fetchTarball "https://github.com/nix-community/NUR/archive/main.tar.gz";
+  plasma-manager = builtins.fetchTarball "https://github.com/nix-community/plasma-manager/archive/trunk.tar.gz";
+  nixos-hardware = builtins.fetchTarball "https://github.com/NixOS/nixos-hardware/archive/master.tar.gz";
 in
 {
   imports =
-    [ # Include the results of the hardware scan.
+    [
       ./hardware-configuration.nix
       "${impermanence}/nixos.nix"
       "${home-manager}/nixos"
@@ -33,6 +19,7 @@ in
   nixpkgs.overlays = [
     (final: prev: {
       nur = import nur-source { pkgs = prev; };
+      quartus-prime-pro = prev.callPackage ./quartus-prime-pro/package.nix { };
     })
   ];
   nixpkgs.config.allowUnfree = true;
@@ -44,44 +31,68 @@ in
   boot.loader.systemd-boot.enable = true;
   boot.loader.efi.canTouchEfiVariables = true;
 
-  # Use LTS kernel
-  boot.kernelPackages = pkgs.linuxPackages;
+  boot.kernelPackages = pkgs.linuxPackages_latest;
 
   boot.kernelParams = [
-    "resume=/dev/nvme0n1p2"
     "btusb.enable_autosuspend=n"
+    "nvme_core.default_ps_max_latency_us=0"
   ];
 
   # Impermanence and roll back
-  boot.initrd.postDeviceCommands = lib.mkAfter ''
-    mkdir /btrfs_tmp
-    mount /dev/nvme0n1p3 /btrfs_tmp
+  boot.initrd.systemd.enable = true;
+  boot.initrd.systemd.services.rollback = {
+    description = "Rollback BTRFS root subvolume to a pristine state";
+    wantedBy = [ "initrd.target" ];
+    after = [ "dev-disk-by\\x2duuid-e11859a0\\x2d2ba3\\x2d4876\\x2da482\\x2d0805706c2527.device" ];
+    requires = [ "dev-disk-by\\x2duuid-e11859a0\\x2d2ba3\\x2d4876\\x2da482\\x2d0805706c2527.device" ];
+    before = [ "sysroot.mount" ]; # Run BEFORE the root filesystem is mounted
+    unitConfig.DefaultDependencies = "no";
+    serviceConfig.Type = "oneshot";
+    script = ''
+      mkdir -p /btrfs_tmp
+      mount -t btrfs -o subvolid=5 /dev/disk/by-uuid/e11859a0-2ba3-4876-a482-0805706c2527 /btrfs_tmp
+      if [[ -e /btrfs_tmp/root ]]; then
+          mkdir -p /btrfs_tmp/old_roots
+          timestamp=$(date --date="@$(stat -c %Y /btrfs_tmp/root)" "+%Y-%m-%-d_%H:%M:%S")
+          mv /btrfs_tmp/root "/btrfs_tmp/old_roots/$timestamp"
+      fi
 
-    # Only wipe if we are NOT resuming from hibernation
-    if [[ ! -e /tmp/resume-at-boot ]]; then
-        if [[ -e /btrfs_tmp/root ]]; then
-            mkdir -p /btrfs_tmp/old_roots
-            timestamp=$(date --date="@$(stat -c %Y /btrfs_tmp/root)" "+%Y-%m-%-d_%H:%M:%S")
-            mv /btrfs_tmp/root "/btrfs_tmp/old_roots/$timestamp"
-        fi
-        btrfs subvolume snapshot /btrfs_tmp/root-blank /btrfs_tmp/root
-    fi
+      delete_subvolume_recursively() {
+          IFS=$'\n'
+          for i in $(btrfs subvolume list -o "$1" | cut -f 9- -d ' '); do
+              delete_subvolume_recursively "/btrfs_tmp/$i"
+          done
+          btrfs subvolume delete "$1"
+      }
 
-    umount /btrfs_tmp
-  '';
+      # Optional: Clean up old roots older than 30 days to save space.
+      # Note: rm -rf does NOT work on BTRFS subvolumes; use the function above.
+      for old in $(find /btrfs_tmp/old_roots/ -maxdepth 1 -mindepth 1 -mtime +30); do
+          delete_subvolume_recursively "$old"
+      done
 
-  # Critical persistence
+      if [[ ! -e /btrfs_tmp/root-blank ]]; then
+          echo "ERROR: /btrfs_tmp/root-blank subvolume not found — cannot rollback!" >&2
+          umount /btrfs_tmp
+          exit 1
+      fi
+
+      btrfs subvolume snapshot /btrfs_tmp/root-blank /btrfs_tmp/root
+      umount /btrfs_tmp
+    '';
+  };
+
   fileSystems."/persist".neededForBoot = true;
   fileSystems."/var/log".neededForBoot = true;
   environment.persistence."/persist" = {
     hideMounts = true;
     directories = [
-      "/var/log"
       "/var/lib/bluetooth"
       "/var/lib/nixos"
       "/var/lib/systemd/coredump"
       "/etc/NetworkManager/system-connections"
       "/etc/nixos"
+      "/var/lib/fwupd"
       { directory = "/var/lib/colord"; user = "colord"; group = "colord"; mode = "u=rwx,g=rx,o="; }
     ];
     files = [
@@ -96,7 +107,7 @@ in
         "Pictures"
         "Documents"
         "Videos"
-        "VirtualBox VMs"
+        "Virtual Machines"
         "GitHub"
         "OneDrive"
         ".nixos-config"
@@ -113,20 +124,36 @@ in
         ".config/discord"
         ".config/Slack"
         ".config/gh"
-        ".config/signal"
         ".config/obsidian"
+        ".config/kicad"
+        ".config/spotify"
         ".local/share/Steam"
         ".steam"
-        ".local/share/containers/"
-        ".config/VirtualBox"
-        ".vagrant.d"
+        ".local/share/containers"
+        ".local/share/kicad"
         ".claude"
-        ".wine"
-        ".local/share/applications/wine" # Show desktop links
+        { directory = ".rustup"; user = "j-nac"; group = "users"; mode = "0755"; }
+        { directory = ".cargo"; user = "j-nac"; group = "users"; mode = "0755"; }
+        ".local/share/PrismLauncher"
+        ".local/share/dolphin"
+        ".local/share/baloo"
+        ".local/state"
+        ".config/keepassxc"
+        ".altera.quartus"
       ];
       files = [
         ".screenrc"
         ".p10k.zsh"
+        ".config/dolphinrc"
+        ".config/kdeglobals"
+        ".config/mimeapps.list"
+        ".local/share/recently-used.xbel"
+        ".local/share/user-places.xbel"
+        ".config/kwalletrc"
+        ".config/plasmashellrc"
+        ".config/kwinrc"
+        ".config/kwinoutputconfig.json"
+        ".config/plasma-org.kde.plasma.desktop-appletsrc"
       ];
     };
   };
@@ -139,57 +166,53 @@ in
     "flakes"
   ];
 
-  networking.hostName = "nixos"; # Define your hostname.
+  networking.hostName = "nixos";
 
   # Configure network connections interactively with nmcli or nmtui.
   networking.networkmanager.enable = true;
 
-  # Set your time zone.
   time.timeZone = "America/New_York";
 
-  # Configure network proxy if necessary
-  # networking.proxy.default = "http://user:password@proxy:port/";
-  # networking.proxy.noProxy = "127.0.0.1,localhost,internal.domain";
-
-  # Select internationalisation properties.
   i18n.defaultLocale = "en_US.UTF-8";
-  # console = {
-  #   font = "Lat2-Terminus16";
-  #   keyMap = "us";
-  #   useXkbConfig = true; # use xkb.options in tty.
-  # };
 
-  # Enable the X11 windowing system.
   services.xserver.enable = true;
   services.displayManager.sddm.enable = true;
   services.desktopManager.plasma6.enable = true;
 
-  # Configure keymap in X11
-  # services.xserver.xkb.layout = "us";
-  # services.xserver.xkb.options = "eurosign:e,caps:escape";
-
-  # Enable CUPS to print documents.
   services.printing.enable = true;
 
-  # Enable sound.
-  # services.pulseaudio.enable = true;
-  # OR
-  # services.pipewire = {
-  #   enable = true;
-  #   pulse.enable = true;
-  # };
+  services.pipewire = {
+    enable = true;
+    alsa.enable = true;
+    alsa.support32Bit = true;
+    pulse.enable = true;
+  };
 
-  # Enable touchpad support (enabled default in most desktopManager).
   services.libinput.enable = true;
+
+  # Intel/Altera USB-Blaster (incl. Terasic DE23-Lite USB-Blaster III, 09fb:6022).
+  # MODE="0666" is applied by udev itself on every add event (coldplug at boot or hotplug),
+  # independent of any login session, so jtagd can always claim the cable read-write and
+  # Quartus shows "DE23-Lite [USB-1]" instead of "USB-Blaster variant [1-1-iface0]".
+  # (TAG+="uaccess" was tried first but is unreliable here: logind doesn't grant the ACL
+  # at boot/hotplug because the graphical session isn't the seat0 session.)
+  services.udev.extraRules = ''
+    SUBSYSTEM=="usb", ATTR{idVendor}=="09fb", MODE="0666"
+  '';
 
   hardware.graphics.enable = true;
   hardware.bluetooth.enable = true;
   hardware.enableAllFirmware = true;
+  hardware.nvidia.powerManagement.enable = true;
+
+  fonts.packages = with pkgs; [
+    vista-fonts
+  ];
 
   users.mutableUsers = false;
   users.users.j-nac = {
     isNormalUser = true;
-    extraGroups = [ "wheel" "networkmanager" "docker" "vboxusers" ]; # Enable ‘sudo’ for the user.
+    extraGroups = [ "wheel" "networkmanager" "podman" "libvirtd" ];
     shell = pkgs.zsh;
     # mkpasswd -m sha-512 > j-nac_hash.txt
     hashedPasswordFile = "/persist/etc/nixos-passwords/j-nac_hash.txt";
@@ -204,19 +227,15 @@ in
       keepassxc
       discord
       slack
-      signal-desktop
       ghidra-bin
       gh
       meslo-lgs-nf
       claude-code
       python314
       texliveFull
-      libreoffice-qt
-      distrobox
       ruby
       binutils
       jekyll
-      libgcc
       gnumake
       gcc
       gdb
@@ -232,18 +251,21 @@ in
       clang-tools
       cmake
       kdePackages.qrca
-      rustc
-      cargo
-      wineWowPackages.stable
-      winetricks
+      rustup
       rpi-imager
       ruff
       nodejs_24
       anki-bin
-      spotify
       obsidian
       godot
-      pixi
+      prismlauncher
+      verilator
+      cinny-desktop
+      ltspice
+      killall
+      kicad
+      spotify
+      quartus-prime-pro
     ];
     programs = {
       zsh = {
@@ -263,7 +285,6 @@ in
           file = "share/zsh-powerlevel10k/powerlevel10k.zsh-theme";
         }];
         initContent = ''
-        PROMPT='%n@%m %~ %# '
         [[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh
         '';
       };
@@ -278,6 +299,7 @@ in
             plasma-integration
           ];
         };
+        configPath = ".mozilla/firefox";
       };
       vscode = {
         enable = true;
@@ -293,8 +315,8 @@ in
             "editor.defaultFormatter" = "charliermarsh.ruff";
             "editor.formatOnSave" = true;
             "editor.codeActionsOnSave" = {
-              "source.fixAll.ruff" = "explicit";
-              "source.organizeImports.ruff" = "explicit";
+              "source.fixAll" = "explicit";
+              "source.organizeImports" = "explicit";
             };
           };
           # "python.analysis.typeCheckingMode" = "strict";
@@ -311,10 +333,12 @@ in
           };
           "ruff.organizeImports" = true;
           "errorLens.enabledDiagnosticLevels" = [
-		        "error"
-		        "warning"
-	        ];
+            "error"
+            "warning"
+          ];
           "rust-analyzer.check.command" = "clippy";
+          "rust-analyzer.checkOnSave.enable" = false;
+          "chat.disableAIFeatures" = true;
         };
         profiles.default.extensions = with pkgs.vscode-extensions; [
           ms-python.python
@@ -343,6 +367,7 @@ in
           vadimcn.vscode-lldb
           tamasfe.even-better-toml
           gruntfuggly.todo-tree
+          mshr-h.veriloghdl
         ];
       };
       git = {
@@ -354,7 +379,7 @@ in
       ssh = {
         enable = true;
         enableDefaultConfig = false;
-        matchBlocks = {
+        settings = {
           "cornell-ece-linux" = {
             hostname = "ecelinux-16.ece.cornell.edu";
             user = "jn567";
@@ -381,10 +406,10 @@ in
           hiding = "dodgewindows";
 
           widgets = [
-            "org.kde.plasma.kickoff"          # Application Launcher (Start Menu)
-            "org.kde.plasma.icontasks"        # Icons-only Task Manager
-            "org.kde.plasma.marginsseparator" # Spacer
-            "org.kde.plasma.systemtray"       # System Tray (Clock, Wi-Fi, etc.)
+            "org.kde.plasma.kickoff"
+            "org.kde.plasma.icontasks"
+            "org.kde.plasma.marginsseparator"
+            "org.kde.plasma.systemtray"
             "org.kde.plasma.digitalclock"
           ];
         }];
@@ -394,15 +419,15 @@ in
         enableZshIntegration = true;
       };
     };
+    home.sessionPath = [ "$HOME/.cargo/bin" ];
     home.stateVersion = "25.11";
   };
 
-  programs.firefox.enable = true;
   programs.zsh.enable = true;
   programs.steam = {
-    enable = true; # Master switch, already covered in installation
-    remotePlay.openFirewall = true;  # Open ports in the firewall for Steam Remote Play
-    dedicatedServer.openFirewall = true; # Open ports for Source Dedicated Server hosting
+    enable = true;
+    remotePlay.openFirewall = true;
+    dedicatedServer.openFirewall = true;
   };
   programs.gamemode.enable = true;
 
@@ -414,98 +439,46 @@ in
 
   programs.nix-ld.enable = true;
   programs.nix-ld.libraries = with pkgs; [
-    # Fundamental C/C++ libraries
     stdenv.cc.cc
     libgcc
 
-    # Dependencies for NumPy, SciPy, and Scikit-learn
     zlib
     gfortran.cc.lib
 
-    # Dependencies for sound-related libraries (librosa, sounddevice)
     alsa-lib
     libjack2
     portaudio
     libsndfile
 
-    # Common dynamic dependencies for Python data science wheels
     openssl
     curl
     expat
   ];
 
-  virtualisation.containers.enable = true;
   virtualisation = {
+    containers.enable = true;
     podman = {
       enable = true;
-
-      # Create a `docker` alias for podman, to use it as a drop-in replacement
       dockerCompat = true;
-
-      # Required for containers under podman-compose to be able to talk to each other.
       defaultNetwork.settings.dns_enabled = true;
     };
+    libvirtd = {
+      enable = true;
+      qemu.vhostUserPackages = with pkgs; [ virtiofsd ];
+    };
   };
-  virtualisation.virtualbox.host.enable = true;
-  virtualisation.virtualbox.host.enableExtensionPack = true;
 
-  # List packages installed in system profile.
-  # You can use https://search.nixos.org/ to find more packages (and options).
+  programs.virt-manager.enable = true;
+
   environment.systemPackages = with pkgs; [
     vim
     wget
     kdePackages.plasma-browser-integration
     docker-compose
-    vagrant
-    gnupg
-    pinentry-curses
+    dnsmasq
   ];
+  nix.settings.auto-optimise-store = true;
 
-  environment.variables = {
-    VAGRANT_DEFAULT_PROVIDER = "virtualbox";
-  };
-
-  # Some programs need SUID wrappers, can be configured further or are
-  # started in user sessions.
-  # programs.mtr.enable = true;
-  # programs.gnupg.agent = {
-  #   enable = true;
-  #   enableSSHSupport = true;
-  # };
-
-  # List services that you want to enable:
-
-  # Enable the OpenSSH daemon.
-  # services.openssh.enable = true;
-
-  # Open ports in the firewall.
-  # networking.firewall.allowedUDPPorts = [ ... ];
-  # Or disable the firewall altogether.
-  # networking.firewall.enable = false;
-
-  # Copy the NixOS configuration file and link it from the resulting system
-  # (/run/current-system/configuration.nix). This is useful in case you
-  # accidentally delete configuration.nix.
-  # system.copySystemConfiguration = true;
-
-  # This option defines the first version of NixOS you have installed on this particular machine,
-  # and is used to maintain compatibility with application data (e.g. databases) created on older NixOS versions.
-  #
-  # Most users should NEVER change this value after the initial install, for any reason,
-  # even if you've upgraded your system to a new NixOS release.
-  #
-  # This value does NOT affect the Nixpkgs version your packages and OS are pulled from,
-  # so changing it will NOT upgrade your system - see https://nixos.org/manual/nixos/stable/#sec-upgrading for how
-  # to actually do that.
-  #
-  # This value being lower than the current NixOS release does NOT mean your system is
-  # out of date, out of support, or vulnerable.
-  #
-  # Do NOT change this value unless you have manually inspected all the changes it would make to your configuration,
-  # and migrated your data accordingly.
-  #
-  # For more information, see `man configuration.nix` or https://nixos.org/manual/nixos/stable/options#opt-system.stateVersion .
-  system.stateVersion = "25.11"; # Did you read the comment?
-
+  # Do NOT change stateVersion after initial install — it controls app data compatibility.
+  system.stateVersion = "25.11";
 }
-
